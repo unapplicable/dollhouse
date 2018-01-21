@@ -15,7 +15,8 @@ IF NOT EXISTS wishlist (
  id integer PRIMARY KEY,
  title text NOT NULL,
  includeprops text,
- excludeprops text
+ excludeprops text,
+ min_episode text
 );
 
 CREATE TABLE

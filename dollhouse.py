@@ -16,10 +16,15 @@ class DollHouse:
 	def create_connection(self):
 		try:
 			conn = sqlite3.connect(self.database)
+			conn.create_function('regexp', 2, self.regexp)
 			return conn
 		except Error as e:
 			print(e)
 		return None
+
+	def regexp(self, expr, item):
+		reg = re.compile(expr, re.IGNORECASE)
+		return reg.search(item) is not None
 
 	def add_release(self, conn, show):
 		sql = "INSERT INTO releases(title, episode, quality, tags, category, date, link) VALUES(?, ?, ?, ?, ?, ?, ?)"
@@ -35,13 +40,13 @@ class DollHouse:
 
 	def get_wishlist(self, conn):
 		cur = conn.cursor()
-		cur.execute("SELECT title, includeprops, excludeprops FROM wishlist")
+		cur.execute("SELECT title, min_episode, includeprops, excludeprops FROM wishlist")
 		rows = cur.fetchall()
 		return rows
 
 	def check_if_show_exists(self, link):
 		cur = conn.cursor()
-		cur.execute("SELECT * FROM releases WHERE link=?", (link,))
+		cur.execute("SELECT * FROM releases WHERE link=? COLLATE NOCASE", (link,))
 		rows = cur.fetchall()
 		if len(rows) == 0:
 			return False
@@ -50,7 +55,7 @@ class DollHouse:
 
 	def check_to_download(self, title, episode):
 		cur = conn.cursor()
-		cur.execute("SELECT * FROM downloads WHERE title=? AND episode=? ORDER BY episode DESC", (title,episode,))
+		cur.execute("SELECT * FROM downloads WHERE title=? COLLATE NOCASE AND episode=? COLLATE NOCASE ORDER BY episode DESC", (title,episode,))
 		rows = cur.fetchall()
 		if len(rows) > 0:
 			return False
@@ -60,22 +65,47 @@ class DollHouse:
 		print "Downloaded: %s" % (link)
 		return True
 
+	def check_if_continue_props(self, tags, includeprops, excludeprops):
+		if includeprops is None and excludeprops is None:
+			return True
+
+		if includeprops and excludeprops:
+			if self.regexp(includeprops, tags) and self.regexp(excludeprops, tags) is False:
+				return True
+
+		if includeprops and excludeprops is None:
+			if self.regexp(includeprops, tags):
+				return True
+
+		if excludeprops and includeprops is None:
+			if self.regexp(excludeprops, tags) is False:
+				return True
+
+		return False
+
 	def find_releases(self, conn):
 		wishlist = self.get_wishlist(conn)
 
 		cur = conn.cursor()
 		for wish in wishlist:
+			filters = []
 			title = wish[0]
-			cur.execute("SELECT id, title, episode, quality, link FROM releases WHERE title=? AND date > datetime('now', '-3 days') ORDER BY title, episode, quality", (title,))
+			min_episode = wish[1]
+			includeprops = wish[2]
+			excludeprops = wish[3]
+			if min_episode is None:
+				min_episode = ""
+			cur.execute("SELECT id, title, episode, quality, link, tags FROM releases WHERE title=? COLLATE NOCASE AND date>datetime('now', '-3 days') AND episode>=? COLLATE NOCASE ORDER BY title, episode, quality", (title,min_episode,))
 			rows = cur.fetchall()
 			if len(rows) > 0:
 				for row in rows:
-					if self.check_to_download(row[1], row[2]):
-						result = self.download_episode(row[4])
-						if result:
-							show = (row[1], row[2], row[0])
-							id = self.add_downloads(conn, show)
-							print "Marked show as downloaded: %s, %s (release_id: %s)" % (row[1], row[2], id)
+					if self.check_if_continue_props(row[5], includeprops, excludeprops):
+						if self.check_to_download(row[1], row[2]):
+							result = self.download_episode(row[4])
+							if result:
+								show = (row[1], row[2], row[0])
+								id = self.add_downloads(conn, show)
+								print "Marked show as downloaded: %s, %s (release_id: %s)" % (row[1], row[2], id)
 
 	def get_feed(self):
 		#req = requests.get(self.tl_link)
