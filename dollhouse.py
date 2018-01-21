@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import requests, re, rfc822, sqlite3
+import requests, re, rfc822, sqlite3, os
 import logging, logging.handlers
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -10,9 +10,10 @@ from configobj import ConfigObj
 class DollHouse:
 
 	def __init__(self):
-		config = ConfigObj('dollhouse.ini')
+		config = ConfigObj(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dollhouse.ini'))
 		self.tl_link = config['rss_link']
 		self.database = config['database']
+		self.save_dir = config['save_dir']
 
 	def create_connection(self):
 		try:
@@ -72,7 +73,13 @@ class DollHouse:
 		return True
 
 	def download_episode(self, link):
-		log.debug("Downloaded: %s" % (link))
+		req = requests.get(link)
+		filename = re.findall('filename="(.+)"', req.headers['content-disposition'])
+		path = os.path.join(self.save_dir, filename[0])
+		f = open(path, 'wb')
+		f.write(req.content)
+		f.close()
+		log.debug("Downloaded %s -> %s" % (link, path))
 		return True
 
 	def check_if_continue_props(self, tags, includeprops, excludeprops):
@@ -118,13 +125,14 @@ class DollHouse:
 								log.info("Marked show as downloaded: %s, %s (release_id: %s)" % (row[1], row[2], id))
 
 	def get_feed(self):
-		#req = requests.get(self.tl_link)
-		#root = ET.fromstring(req.text)
+		req = requests.get(self.tl_link)
+		log.debug("%s status_code: %s" % (self.tl_link, req.status_code))
+		root = ET.fromstring(req.text)
 
-		f = open("rss.xml", "r")
-		feed = f.read()
-		f.close()
-		root = ET.fromstring(feed)
+		#f = open("rss.xml", "r")
+		#feed = f.read()
+		#f.close()
+		#root = ET.fromstring(feed)
 
 		items = root.findall('channel/item')
 
@@ -207,7 +215,7 @@ if __name__ == '__main__':
 				showitems = (show['title'], show['episode'], show['quality'], show['tags'], show['category'], show['date'], show['link'])
 				row_id = dh.add_release(conn, showitems)
 				conn.commit()
-				log.info("Added show to releases: %s, %s, %s, %s" % (show['title'], show['episode'], show['quality'], show['date']))
+				log.info("New release: %s, %s, %s, %s %s" % (show['title'], show['episode'], show['quality'], show['date'], show['link']))
 
 		dh.find_releases(conn)
 
