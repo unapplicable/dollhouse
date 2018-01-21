@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import requests, re, rfc822, sqlite3
+import logging, logging.handlers
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pprint import pprint
@@ -19,8 +20,17 @@ class DollHouse:
 			conn.create_function('regexp', 2, self.regexp)
 			return conn
 		except Error as e:
-			print(e)
+			log.error(e)
 		return None
+
+	def setup_logger(self):
+		logger = logging.getLogger('DollHouse')
+		formatter = logging.Formatter(fmt='%(name)s: %(message)s')
+		logger.setLevel(logging.DEBUG)
+		handler = logging.handlers.SysLogHandler(address = '/dev/log')
+		handler.setFormatter(formatter)
+		logger.addHandler(handler)
+		return logger
 
 	def regexp(self, expr, item):
 		reg = re.compile(expr, re.IGNORECASE)
@@ -62,7 +72,7 @@ class DollHouse:
 		return True
 
 	def download_episode(self, link):
-		print "Downloaded: %s" % (link)
+		log.debug("Downloaded: %s" % (link))
 		return True
 
 	def check_if_continue_props(self, tags, includeprops, excludeprops):
@@ -105,7 +115,7 @@ class DollHouse:
 							if result:
 								show = (row[1], row[2], row[0])
 								id = self.add_downloads(conn, show)
-								print "Marked show as downloaded: %s, %s (release_id: %s)" % (row[1], row[2], id)
+								log.info("Marked show as downloaded: %s, %s (release_id: %s)" % (row[1], row[2], id))
 
 	def get_feed(self):
 		#req = requests.get(self.tl_link)
@@ -182,6 +192,8 @@ class DollHouse:
 if __name__ == '__main__':
 
 	dh = DollHouse()
+	log = dh.setup_logger()
+	log.debug("Started")
 
 	feed = dh.get_feed()
 	shows, movies = dh.parse_feed(feed)
@@ -195,7 +207,8 @@ if __name__ == '__main__':
 				showitems = (show['title'], show['episode'], show['quality'], show['tags'], show['category'], show['date'], show['link'])
 				row_id = dh.add_release(conn, showitems)
 				conn.commit()
-				print "Added show to releases: %s, %s, %s, %s" % (show['title'], show['episode'], show['quality'], show['date'])
+				log.info("Added show to releases: %s, %s, %s, %s" % (show['title'], show['episode'], show['quality'], show['date']))
 
 		dh.find_releases(conn)
 
+	log.debug("Finished")
