@@ -75,7 +75,7 @@ class DollHouse:
 	def download_episode(self, link):
 		req = requests.get(link)
 		filename = re.findall('filename="(.+)"', req.headers['content-disposition'])
-		path = os.path.join(self.save_dir, filename[0])
+		path = os.path.join(self.save_dir, os.path.basename((filename[0])))
 		f = open(path, 'wb')
 		f.write(req.content)
 		f.close()
