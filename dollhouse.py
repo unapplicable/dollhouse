@@ -127,7 +127,7 @@ class DollHouse:
 	def get_feed(self):
 		req = requests.get(self.tl_link)
 		log.debug("%s status_code: %s" % (self.tl_link, req.status_code))
-		root = ET.fromstring(req.text)
+		root = ET.fromstring(req.text.encode('utf-8'))
 
 		#f = open("rss.xml", "r")
 		#feed = f.read()
