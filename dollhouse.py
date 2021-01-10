@@ -148,8 +148,16 @@ class DollHouse:
 			category = item.findtext('category')
 			link = item.findtext('link')
 			pubDate = item.findtext('pubDate')
-			date = datetime.fromtimestamp(email.utils.mktime_tz(email.utils.parsedate_tz(pubDate)))
-			shows.append({'title': title, 'category': category, 'link': link, 'date': date.strftime("%Y-%m-%d %H:%M:%S")})
+			if pubDate == "":
+				desc = item.findtext('description')
+				added = re.search("Added: ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})", desc)
+				date = datetime.strptime(added.group(1), '%Y-%m-%d %H:%M:%S')
+			else:
+				parsed = email.utils.parsedate_tz(pubDate)
+				date = datetime.fromtimestamp(email.utils.mktime_tz(parsed))
+
+			show = {'title': title, 'category': category, 'link': link, 'date': date.strftime("%Y-%m-%d %H:%M:%S")}
+			shows.append(show)
 
 
 		for show in shows:
