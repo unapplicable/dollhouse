@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import requests, re, rfc822, sqlite3, os
+import requests, re, email, sqlite3, os, sys
 import logging, logging.handlers
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -9,8 +9,8 @@ from configobj import ConfigObj
 
 class DollHouse:
 
-	def __init__(self):
-		config = ConfigObj(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dollhouse.ini'))
+	def __init__(self, config_path):
+		config = ConfigObj(config_path)
 		self.tl_link = config['rss_link']
 		self.database = config['database']
 		self.save_dir = config['save_dir']
@@ -148,7 +148,7 @@ class DollHouse:
 			category = item.findtext('category')
 			link = item.findtext('link')
 			pubDate = item.findtext('pubDate')
-			date = datetime.fromtimestamp(rfc822.mktime_tz(rfc822.parsedate_tz(pubDate)))
+			date = datetime.fromtimestamp(email.utils.mktime_tz(email.utils.parsedate_tz(pubDate)))
 			shows.append({'title': title, 'category': category, 'link': link, 'date': date.strftime("%Y-%m-%d %H:%M:%S")})
 
 
@@ -156,13 +156,14 @@ class DollHouse:
 			episodedict = {}
 			is_movie = False
 
-			part = re.split("(S[0-9]+E[0-9]+)?", show['title'])
-			part = map(str.strip, part)
-
+			part = re.split("(S[0-9]+E[0-9]+)", show['title'])
+			#part = map(str.strip, part)
 			part = ['' if x is None else x for x in part]
+			part = [p.strip() for p in part]
+
 
 			if len(part) == 1:
-				seriespart = re.split("([0-9]{4}(?:\s+|\.)[0-9]{2}(?:\s+|\.)[0-9]{2})?", part[0])
+				seriespart = re.split("([0-9]{4}(?:\s+|\.)[0-9]{2}(?:\s+|\.)[0-9]{2})", part[0])
 				if len(seriespart) == 1:
 					movies.append({'title': show['title'], 'category': show['category'], 'link': show['link'], 'date': show['date']})
 					is_movie = True
@@ -198,8 +199,8 @@ class DollHouse:
 		return allshows, movies
 
 if __name__ == '__main__':
-
-	dh = DollHouse()
+	os.chdir(os.path.dirname(os.path.abspath(__file__)))
+	dh = DollHouse(sys.argv[1] if len(sys.argv) > 1 else 'dollhouse.ini')
 	log = dh.setup_logger()
 	log.debug("Started")
 
