@@ -203,6 +203,8 @@ class DollHouse:
 				item['quality'] = '1080p'
 			elif '720p' in item['tags']:
 				item['quality'] = '720p'
+			elif '540p' in item['tags']:
+				item['quality'] = '540p'
 
 		return allshows, movies
 
