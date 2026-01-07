@@ -1,6 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
-import requests, re, email, sqlite3, os, sys
+import requests, re, email, psycopg2, os, sys
 import logging, logging.handlers
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -17,8 +17,7 @@ class DollHouse:
 
 	def create_connection(self):
 		try:
-			conn = sqlite3.connect(self.database)
-			conn.create_function('regexp', 2, self.regexp)
+			conn = psycopg2.connect(self.database)
 			return conn
 		except Error as e:
 			log.error(e)
@@ -38,13 +37,13 @@ class DollHouse:
 		return reg.search(item) is not None
 
 	def add_release(self, conn, show):
-		sql = "INSERT INTO releases(title, episode, quality, tags, category, date, link) VALUES(?, ?, ?, ?, ?, ?, ?)"
+		sql = "INSERT INTO releases(title, episode, quality, tags, category, date, link) VALUES(%s, %s, %s, %s, %s, %s, %s)"
 		cur = conn.cursor()
 		cur.execute(sql, show)
 		return cur.lastrowid
 
 	def add_downloads(self, conn, show):
-		sql = "INSERT INTO downloads(title, episode, release_id) VALUES(?, ?, ?)"
+		sql = "INSERT INTO downloads(title, episode, release_id) VALUES(%s, %s, %s)"
 		cur = conn.cursor()
 		cur.execute(sql, show)
 		return cur.lastrowid
@@ -57,7 +56,7 @@ class DollHouse:
 
 	def check_if_show_exists(self, link):
 		cur = conn.cursor()
-		cur.execute("SELECT * FROM releases WHERE link=? COLLATE NOCASE", (link,))
+		cur.execute("SELECT * FROM releases WHERE lower(link)=lower(%s)", (link,))
 		rows = cur.fetchall()
 		if len(rows) == 0:
 			return False
@@ -66,7 +65,7 @@ class DollHouse:
 
 	def check_to_download(self, title, episode):
 		cur = conn.cursor()
-		cur.execute("SELECT * FROM downloads WHERE title=? COLLATE NOCASE AND episode=? COLLATE NOCASE ORDER BY episode DESC", (title,episode,))
+		cur.execute("SELECT * FROM downloads WHERE lower(title)=lower(%s) AND lower(episode)=lower(%s) ORDER BY episode DESC", (title,episode,))
 		rows = cur.fetchall()
 		if len(rows) > 0:
 			return False
@@ -79,7 +78,7 @@ class DollHouse:
 		f = open(path, 'wb')
 		f.write(req.content)
 		f.close()
-		log.debug("Downloaded %s -> %s" % (link, path))
+		log.info("Downloaded %s -> %s" % (link, path))
 		return True
 
 	def check_if_continue_props(self, tags, includeprops, excludeprops):
@@ -112,7 +111,7 @@ class DollHouse:
 			excludeprops = wish[3]
 			if min_episode is None:
 				min_episode = ""
-			cur.execute("SELECT id, title, episode, quality, link, tags FROM releases WHERE title=? COLLATE NOCASE AND date>datetime('now', '-3 days') AND episode>=? COLLATE NOCASE ORDER BY title, episode, quality", (title,min_episode,))
+			cur.execute("SELECT id, title, episode, quality, link, tags FROM releases WHERE lower(title)=lower(%s) AND date > NOW() - INTERVAL '3 days' AND lower(episode)>=lower(%s) ORDER BY title, episode, quality", (title,min_episode,))
 			rows = cur.fetchall()
 			if len(rows) > 0:
 				for row in rows:
@@ -135,6 +134,7 @@ class DollHouse:
 		#root = ET.fromstring(feed)
 
 		items = root.findall('channel/item')
+		log.info("Fetched %s items" % (len(items)))
 
 		return items
 
@@ -171,12 +171,13 @@ class DollHouse:
 
 
 			if len(part) == 1:
-				seriespart = re.split("([0-9]{4}(?:\s+|\.)[0-9]{2}(?:\s+|\.)[0-9]{2})", part[0])
+				seriespart = re.split("([0-9]{4}(?:\\s+|\\.)[0-9]{2}(?:\\s+|\\.)[0-9]{2})", part[0])
 				if len(seriespart) == 1:
 					movies.append({'title': show['title'], 'category': show['category'], 'link': show['link'], 'date': show['date']})
 					is_movie = True
 				else:
-					seriespart = map(str.strip, seriespart)
+					#seriespart = map(str.strip, seriespart)
+					seriespart = [s.strip() for s in seriespart]
 					episodedict.update({'title': seriespart[0]})
 					episodedict.update({'episode': seriespart[1]})
 					episodedict.update({'tags': seriespart[2]})
@@ -203,8 +204,8 @@ class DollHouse:
 				item['quality'] = '1080p'
 			elif '720p' in item['tags']:
 				item['quality'] = '720p'
-			elif '540p' in item['tags']:
-				item['quality'] = '540p'
+			elif '2160p' in item['tags']:
+				item['quality'] = '2160p';
 
 		return allshows, movies
 
