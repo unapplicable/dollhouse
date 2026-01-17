@@ -32,21 +32,17 @@ class DollHouse:
 		logger.addHandler(handler)
 		return logger
 
-	def regexp(self, expr, item):
-		reg = re.compile(expr, re.IGNORECASE)
-		return reg.search(item) is not None
-
 	def add_release(self, conn, show):
-		sql = "INSERT INTO releases(title, episode, quality, tags, category, date, link) VALUES(%s, %s, %s, %s, %s, %s, %s)"
+		sql = "INSERT INTO releases(title, episode, quality, tags, category, date, link) VALUES(%s, %s, %s, %s, %s, %s, %s) RETURNING id"
 		cur = conn.cursor()
 		cur.execute(sql, show)
-		return cur.lastrowid
+		return cur.fetchone()[0]
 
 	def add_downloads(self, conn, show):
-		sql = "INSERT INTO downloads(title, episode, release_id) VALUES(%s, %s, %s)"
+		sql = "INSERT INTO downloads(title, episode, release_id) VALUES(%s, %s, %s) RETURNING id"
 		cur = conn.cursor()
 		cur.execute(sql, show)
-		return cur.lastrowid
+		return cur.fetchone()[0]
 
 	def get_wishlist(self, conn):
 		cur = conn.cursor()
@@ -54,22 +50,15 @@ class DollHouse:
 		rows = cur.fetchall()
 		return rows
 
-	def check_if_show_exists(self, link):
+	def check_if_show_exists(self, conn, link):
 		cur = conn.cursor()
-		cur.execute("SELECT * FROM releases WHERE lower(link)=lower(%s)", (link,))
-		rows = cur.fetchall()
-		if len(rows) == 0:
-			return False
-		else:
-			return True
+		cur.execute("SELECT check_release_exists(%s)", (link,))
+		return cur.fetchone()[0]
 
-	def check_to_download(self, title, episode):
+	def check_to_download(self, conn, title, episode):
 		cur = conn.cursor()
-		cur.execute("SELECT * FROM downloads WHERE lower(title)=lower(%s) AND lower(episode)=lower(%s) ORDER BY episode DESC", (title,episode,))
-		rows = cur.fetchall()
-		if len(rows) > 0:
-			return False
-		return True
+		cur.execute("SELECT is_not_downloaded(%s, %s)", (title, episode))
+		return cur.fetchone()[0]
 
 	def download_episode(self, link):
 		req = requests.get(link)
@@ -81,47 +70,22 @@ class DollHouse:
 		log.info("Downloaded %s -> %s" % (link, path))
 		return True
 
-	def check_if_continue_props(self, tags, includeprops, excludeprops):
-		if includeprops is None and excludeprops is None:
-			return True
-
-		if includeprops and excludeprops:
-			if self.regexp(includeprops, tags) and self.regexp(excludeprops, tags) is False:
-				return True
-
-		if includeprops and excludeprops is None:
-			if self.regexp(includeprops, tags):
-				return True
-
-		if excludeprops and includeprops is None:
-			if self.regexp(excludeprops, tags) is False:
-				return True
-
-		return False
-
 	def find_releases(self, conn):
-		wishlist = self.get_wishlist(conn)
-
 		cur = conn.cursor()
-		for wish in wishlist:
-			filters = []
-			title = wish[0]
-			min_episode = wish[1]
-			includeprops = wish[2]
-			excludeprops = wish[3]
-			if min_episode is None:
-				min_episode = ""
-			cur.execute("SELECT id, title, episode, quality, link, tags FROM releases WHERE lower(title)=lower(%s) AND date > NOW() - INTERVAL '3 days' AND lower(episode)>=lower(%s) ORDER BY title, episode, quality", (title,min_episode,))
-			rows = cur.fetchall()
-			if len(rows) > 0:
-				for row in rows:
-					if self.check_if_continue_props(row[5], includeprops, excludeprops):
-						if self.check_to_download(row[1], row[2]):
-							result = self.download_episode(row[4])
-							if result:
-								show = (row[1], row[2], row[0])
-								id = self.add_downloads(conn, show)
-								log.info("Marked show as downloaded: %s, %s (release_id: %s)" % (row[1], row[2], id))
+		cur.execute("SELECT * FROM find_matching_releases()")
+		rows = cur.fetchall()
+		
+		for row in rows:
+			# row: (release_id, title, episode, quality, link, tags, wishlist_id)
+			release_id, title, episode, quality, link, tags, wishlist_id = row
+			result = self.download_episode(link)
+			if result:
+				show = (title, episode, release_id)
+				download_id = self.add_downloads(conn, show)
+				try:
+					log.info("Marked show as downloaded: %s, %s (release_id: %s)" % (title, episode, download_id))
+				except NameError:
+					pass  # log not available in test context
 
 	def get_feed(self):
 		req = requests.get(self.tl_link)
@@ -223,7 +187,7 @@ if __name__ == '__main__':
 	with conn:
 
 		for show in shows:
-			if dh.check_if_show_exists(show['link']) is False:
+			if dh.check_if_show_exists(conn, show['link']) is False:
 				showitems = (show['title'], show['episode'], show['quality'], show['tags'], show['category'], show['date'], show['link'])
 				row_id = dh.add_release(conn, showitems)
 				conn.commit()
